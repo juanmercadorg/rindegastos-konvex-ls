@@ -1,100 +1,99 @@
-<p align="center">
-  <a href="http://nestjs.com/" target="blank"><img src="https://nestjs.com/img/logo-small.svg" width="120" alt="Nest Logo" /></a>
-</p>
+**Integración SAP BO a través de Konvex
 
-[circleci-image]: https://img.shields.io/circleci/build/github/nestjs/nest/master?token=abc123def456
-[circleci-url]: https://circleci.com/gh/nestjs/nest
+El siguiente documento explica como está construida la integración Rindegastos <> SAP BO a través de la API de Konvex.
 
-  <p align="center">A progressive <a href="http://nodejs.org" target="_blank">Node.js</a> framework for building efficient and scalable server-side applications.</p>
-    <p align="center">
-<a href="https://www.npmjs.com/~nestjscore" target="_blank"><img src="https://img.shields.io/npm/v/@nestjs/core.svg" alt="NPM Version" /></a>
-<a href="https://www.npmjs.com/~nestjscore" target="_blank"><img src="https://img.shields.io/npm/l/@nestjs/core.svg" alt="Package License" /></a>
-<a href="https://www.npmjs.com/~nestjscore" target="_blank"><img src="https://img.shields.io/npm/dm/@nestjs/common.svg" alt="NPM Downloads" /></a>
-<a href="https://circleci.com/gh/nestjs/nest" target="_blank"><img src="https://img.shields.io/circleci/build/github/nestjs/nest/master" alt="CircleCI" /></a>
-<a href="https://coveralls.io/github/nestjs/nest?branch=master" target="_blank"><img src="https://coveralls.io/repos/github/nestjs/nest/badge.svg?branch=master#9" alt="Coverage" /></a>
-<a href="https://discord.gg/G7Qnnhy" target="_blank"><img src="https://img.shields.io/badge/discord-online-brightgreen.svg" alt="Discord"/></a>
-<a href="https://opencollective.com/nest#backer" target="_blank"><img src="https://opencollective.com/nest/backers/badge.svg" alt="Backers on Open Collective" /></a>
-<a href="https://opencollective.com/nest#sponsor" target="_blank"><img src="https://opencollective.com/nest/sponsors/badge.svg" alt="Sponsors on Open Collective" /></a>
-  <a href="https://paypal.me/kamilmysliwiec" target="_blank"><img src="https://img.shields.io/badge/Donate-PayPal-ff3f59.svg" alt="Donate us"/></a>
-    <a href="https://opencollective.com/nest#sponsor"  target="_blank"><img src="https://img.shields.io/badge/Support%20us-Open%20Collective-41B883.svg" alt="Support us"></a>
-  <a href="https://twitter.com/nestframework" target="_blank"><img src="https://img.shields.io/twitter/follow/nestframework.svg?style=social&label=Follow" alt="Follow us on Twitter"></a>
-</p>
-  <!--[![Backers on Open Collective](https://opencollective.com/nest/backers/badge.svg)](https://opencollective.com/nest#backer)
-  [![Sponsors on Open Collective](https://opencollective.com/nest/sponsors/badge.svg)](https://opencollective.com/nest#sponsor)-->
+Se construyó este servicio para por un lado consumir la API de Rindegastos y obtener los informes cerrados para contabilizar los gastos como asientos contables en SAP BO.
 
-## Description
+En el archivo rindegastos.controller.ts se encuentran los endpoints principales que hacen funcionar este servicio y que explicamos a continuación:
 
-[Nest](https://github.com/nestjs/nest) framework TypeScript starter repository.
+--GET /rindegastos/entries: Es el metodo principal el cual hay que indicar una fecha desde y el id del reporte en Rindegastos. Este metodo se encarga de buscar el reporte en Rindegastos, consultar los gastos aprobados asociados, generar el arreglo y enviarlo a SAP para crear los asientos contables dentro de las "Entradas Diarias" (Journal Entries). Por ejemplo un llamado a este metodo sería localhost:3002/rindegastos/entries?dateSince=2025-03-03&reportId=9853611
 
-## Project setup
+--GET /rindegastos/reports: Es el metodo para buscar un reporte en Rindegastos a través de su fecha y id. Por ejemplo un llamado a este metodo es localhost:3002/rindegastos/reports?dateSince=2025-03-03&reportId=9853611
 
-```bash
-$ npm install
-```
+--GET /rindegastos/allreports: Es el metodo para listar varios reportes, enviando la fecha desde y hasta que se quiera consultar. Por ejemplo un llamado a este metodo es localhost:3002/rindegastos/reports?dateSince=2025-03-03&dateUntil=2025-04-03
 
-## Compile and run the project
+**Archivo .env
 
-```bash
-# development
-$ npm run start
+En el archivo .env se deben especificar ciertas variables de entorno para que el servicio funcione, las cuales deben ser:
 
-# watch mode
-$ npm run start:dev
+#Datos de autentificación de SAP para Konvex
 
-# production mode
-$ npm run start:prod
-```
+X_SECRET= Token de Konvex
+X_SOFTWARE= sap (Siempre es sap, a menos que se quiera establecer la conexión a otro ERP)
+X_DB= Base de datos de SAP
+X_USER= Usuario para acceder a SAP
+X_APIKEY= Contraseña para acceder a SAP
+X_URL= URL configurada para el acceso a la bd de sap
 
-## Run tests
+#Datos de autentificación de Rindegastos
 
-```bash
-# unit tests
-$ npm run test
+RG_APIKEY= token de Rindegastos
+RG_ADMINUSER= id de usuario admin, es usado para dejar comentarios en el historial del informe cuando hay un error o cuando se integró con éxito.
 
-# e2e tests
-$ npm run test:e2e
+**Manejo de errores
 
-# test coverage
-$ npm run test:cov
-```
+La función principal (arrangeEntries) que se encuentra en rindegastos.services.ts es la que se encarga de buscar los informes y gastos en Rindegastos y hacer el arreglo para crear los asientos en SAP. Esta función devuelve el arreglo del asiento creado o bien el mensaje de error si hubo un problema durante la sincronización. Los manejos de errores se hacen con HttpException y HttpStatus, pero hay que tener en cuenta que Konvex aún cuando el servicio arroja un error devuelve el mensaje, pero normalmente el front no lo toma como una caída, así que recomiendo lo siguiente para capturar el error correctamente desde el front:
 
-## Deployment
+Por ejemplo, en un front construido con Angular se puede construir un servicio donde se haran los request http hacia el back, en este caso creamos el servicio http.service.ts con la función SincronizarInforme() que hará el llamado al back para hacer el arreglo del asiento que será enviado a SAP:
 
-When you're ready to deploy your NestJS application to production, there are some key steps you can take to ensure it runs as efficiently as possible. Check out the [deployment documentation](https://docs.nestjs.com/deployment) for more information.
+    SincronizarInforme(idInforme: string){
 
-If you are looking for a cloud-based platform to deploy your NestJS application, check out [Mau](https://mau.nestjs.com), our official platform for deploying NestJS applications on AWS. Mau makes deployment straightforward and fast, requiring just a few simple steps:
+        return this.httpClient.get(`http://localhost:3005/rindegastos/entries?dateSince=2025-06-16&reportId=${idInforme}`);
 
-```bash
-$ npm install -g mau
-$ mau deploy
-```
+    }
 
-With Mau, you can deploy your application in just a few clicks, allowing you to focus on building features rather than managing infrastructure.
+Después dentro del .ts del componente tengo la función que llamará este servicio y se hace un control de errores para manejar bien las respuestas del back (usando next: y error:). Dentro de next colocamos un filtro para leer el status, ya que como se mencionó en el punto anterior, desde el back a veces se reciben errores que el front no los asume como tal por eso aparte del error: en el next: se pone un if para leer errores con código 400 o mayores. Después el mensaje de error o éxito es almacenado en this.resultado para así mostrar en el front.
 
-## Resources
 
-Check out a few resources that may come in handy when working with NestJS:
+  Sincronizar(id: string){
 
-- Visit the [NestJS Documentation](https://docs.nestjs.com) to learn more about the framework.
-- For questions and support, please visit our [Discord channel](https://discord.gg/G7Qnnhy).
-- To dive deeper and get more hands-on experience, check out our official video [courses](https://courses.nestjs.com/).
-- Deploy your application to AWS with the help of [NestJS Mau](https://mau.nestjs.com) in just a few clicks.
-- Visualize your application graph and interact with the NestJS application in real-time using [NestJS Devtools](https://devtools.nestjs.com).
-- Need help with your project (part-time to full-time)? Check out our official [enterprise support](https://enterprise.nestjs.com).
-- To stay in the loop and get updates, follow us on [X](https://x.com/nestframework) and [LinkedIn](https://linkedin.com/company/nestjs).
-- Looking for a job, or have a job to offer? Check out our official [Jobs board](https://jobs.nestjs.com).
+    this.httpService.SincronizarInforme(id)
+    .subscribe({
+      next: (respuesta: any) => {
+        if (respuesta?.status && respuesta.status >= 400){
+          const msg = respuesta.message || 'Error inesperado';
+          this.resultado = [...[msg]];
+          this.cdr.detectChanges();
+          return;
 
-## Support
 
-Nest is an MIT-licensed open source project. It can grow thanks to the sponsors and support by the amazing backers. If you'd like to join them, please [read more here](https://docs.nestjs.com/support).
+        }
+        console.log(respuesta);
+        console.log('hola ok');
+        let mensajeSync = 'Sincronización finalizada, id SAP: '+respuesta.number;
+        this.resultado = [...[mensajeSync]];
+        this.cdr.detectChanges();},
 
-## Stay in touch
+      error: (error) => {
+        console.log(error);
+        console.log('hola error');
+        console.log(error.message);
+        this.resultado = [...[error.message]];
+        this.cdr.detectChanges();
 
-- Author - [Kamil Myśliwiec](https://twitter.com/kammysliwiec)
-- Website - [https://nestjs.com](https://nestjs.com/)
-- Twitter - [@nestframework](https://twitter.com/nestframework)
 
-## License
+      }
+    }
+  );
 
-Nest is [MIT licensed](https://github.com/nestjs/nest/blob/master/LICENSE).
-# rindegastos-konvex-ls
+  }
+
+  Ejemplo del botón en el .html del componente que accionaría la función Sincronizar():
+
+
+                <tbody>
+                    <tr *ngFor="let element of elements">
+                        <td>{{ element.id }}</td>
+                        <td>
+                        <button type="button" class="btn btn-info btn-sync" title="contabilizar" (click)="Sincronizar(element.id)"> Contabilizar
+                        </button>
+                        </td>
+                        <td>{{ resultado }}</td>
+                    </tr>
+                </tbody>
+
+
+Fin.
+
+
+
